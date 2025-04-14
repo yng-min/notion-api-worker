@@ -6,7 +6,7 @@ import { BlockType, CollectionType, HandlerRequest } from "../api/types";
 
 // 줄바꿈을 <br />로 변환하는 함수
 const formatBlockText = (text: string) => {
-  return text.replace(/\n/g, "<br />");
+  return text.replace(/\n/g, "<br/>");
 };
 
 export async function pageRoute(req: HandlerRequest) {
