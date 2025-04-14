@@ -4,11 +4,6 @@ import { createResponse } from "../response";
 import { getTableData } from "./table";
 import { BlockType, CollectionType, HandlerRequest } from "../api/types";
 
-// 줄바꿈을 <br />로 변환하는 함수
-const formatBlockText = (text: string) => {
-  return text.replace(/\n/g, "<br/>");
-};
-
 export async function pageRoute(req: HandlerRequest) {
   const pageId = parsePageId(req.params.pageId);
   const page = await fetchPageById(pageId!, req.notionToken);
@@ -28,6 +23,7 @@ export async function pageRoute(req: HandlerRequest) {
       const content = block.value && block.value.content;
 
       if (!content || (block.value.type === "page" && blockId !== pageId!)) {
+        // skips pages other than the requested page
         return [];
       }
 
@@ -45,21 +41,6 @@ export async function pageRoute(req: HandlerRequest) {
     allBlocks = { ...allBlocks, ...newBlocks };
   }
 
-  // 🔽 줄바꿈 변환 처리 추가
-  for (const blockId in allBlocks) {
-    const block = allBlocks[blockId];
-    const val = block?.value as any;  // <- 여기에 any 타입 강제 부여
-
-    if (val?.properties?.title && Array.isArray(val.properties.title)) {
-      val.properties.title = val.properties.title.map((textArr: any[]) => {
-        if (typeof textArr[0] === "string") {
-          return [formatBlockText(textArr[0]), ...textArr.slice(1)];
-        }
-        return textArr;
-      });
-    }
-  }
-
   const collection = page.recordMap.collection
     ? page.recordMap.collection[Object.keys(page.recordMap.collection)[0]]
     : null;
@@ -73,6 +54,7 @@ export async function pageRoute(req: HandlerRequest) {
   if (collection && collectionView) {
     const pendingCollections = allBlockKeys.flatMap((blockId) => {
       const block = allBlocks[blockId];
+
       return (block.value && block.value.type === "collection_view") ? [block.value.id] : [];
     });
 
