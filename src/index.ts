@@ -1,6 +1,5 @@
-import {} from "@cloudflare/workers-types";
+import type { ExecutionContext } from "@cloudflare/workers-types";
 import { Router, Method } from "tiny-request-router";
-
 import { pageRoute } from "./routes/page";
 import { tableRoute } from "./routes/table";
 import { userRoute } from "./routes/user";
@@ -9,8 +8,17 @@ import { createResponse } from "./response";
 import { getCacheKey } from "./get-cache-key";
 import * as types from "./api/types";
 
+export interface Env {
+  NOTION_PAGE: string;
+  NOTION_TOKEN?: string;
+}
+
 export type Handler = (
-  req: types.HandlerRequest
+  req: types.HandlerRequest & {
+    env: Env;
+    notionPages: string[];
+    notionToken?: string;
+  }
 ) => Promise<Response> | Response;
 
 const corsHeaders = {
@@ -38,57 +46,56 @@ router.get("*", async () =>
   )
 );
 
-const cache = (caches as any).default;
-const NOTION_API_TOKEN =
-  typeof NOTION_TOKEN !== "undefined" ? NOTION_TOKEN : undefined;
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const { pathname, searchParams } = url;
 
-const handleRequest = async (fetchEvent: FetchEvent): Promise<Response> => {
-  const request = fetchEvent.request;
-  const { pathname, searchParams } = new URL(request.url);
-  const notionToken =
-    NOTION_API_TOKEN ||
-    (request.headers.get("Authorization") || "").split("Bearer ")[1] ||
-    undefined;
+    const notionPages = env.NOTION_PAGE.split(",").map(id => id.trim()).filter(Boolean);
 
-  const match = router.match(request.method as Method, pathname);
+    const notionToken =
+      env.NOTION_TOKEN ||
+      (request.headers.get("Authorization") || "").split("Bearer ")[1] ||
+      undefined;
 
-  if (!match) {
-    return new Response("Endpoint not found.", { status: 404 });
-  }
+    const match = router.match(request.method as Method, pathname);
 
-  const cacheKey = getCacheKey(request);
-  let response;
-
-  if (cacheKey) {
-    try {
-      response = await cache.match(cacheKey);
-    } catch (err) {}
-  }
-
-  const getResponseAndPersist = async () => {
-    const res = await match.handler({
-      request,
-      searchParams,
-      params: match.params,
-      notionToken,
-    });
-
-    if (cacheKey) {
-      await cache.put(cacheKey, res.clone());
+    if (!match) {
+      return new Response("Endpoint not found.", { status: 404 });
     }
 
-    return res;
-  };
+    const cache = (caches as any).default;
+    const cacheKey = getCacheKey(request);
+    let cachedResponse;
 
-  if (response) {
-    fetchEvent.waitUntil(getResponseAndPersist());
-    return response;
-  }
+    if (cacheKey) {
+      try {
+        cachedResponse = await cache.match(cacheKey);
+      } catch (err) { }
+    }
 
-  return getResponseAndPersist();
+    const getResponseAndCache = async () => {
+      const res = await match.handler({
+        request,
+        searchParams,
+        params: match.params,
+        notionToken,
+        notionPages,
+        env,
+      });
+
+      if (cacheKey) {
+        ctx.waitUntil(cache.put(cacheKey, res.clone()));
+      }
+
+      return res;
+    };
+
+    if (cachedResponse) {
+      ctx.waitUntil(getResponseAndCache());
+      return cachedResponse;
+    }
+
+    return getResponseAndCache();
+  },
 };
-
-self.addEventListener("fetch", async (event: Event) => {
-  const fetchEvent = event as FetchEvent;
-  fetchEvent.respondWith(handleRequest(fetchEvent));
-});
