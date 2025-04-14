@@ -11,8 +11,6 @@ import * as types from "./api/types";
 export interface Env {
   NOTION_PAGE: string;
   NOTION_TOKEN?: string;
-  ACCOUNT_ID: string;
-  ZONE_ID: string;
 }
 
 export type Handler = (
@@ -50,38 +48,29 @@ router.get("*", async () =>
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url)
-    const { pathname, searchParams } = url
+    const url = new URL(request.url);
+    const { pathname, searchParams } = url;
 
-    // ✅ account_id, zone_id 검증 로직
-    const requestAccountId = request.headers.get("x-account-id")
-    const requestZoneId = request.headers.get("x-zone-id")
-
-    if (
-      !requestAccountId || !requestZoneId ||
-      requestAccountId !== env.ACCOUNT_ID ||
-      requestZoneId !== env.ZONE_ID
-    ) {
-      return new Response("Unauthorized", { status: 403 })
-    }
+    const notionPages = env.NOTION_PAGE.split(",").map(id => id.trim()).filter(Boolean);
 
     const notionToken =
       env.NOTION_TOKEN ||
       (request.headers.get("Authorization") || "").split("Bearer ")[1] ||
-      undefined
+      undefined;
 
-    const match = router.match(request.method as Method, pathname)
+    const match = router.match(request.method as Method, pathname);
+
     if (!match) {
-      return new Response("Endpoint not found.", { status: 404 })
+      return new Response("Endpoint not found.", { status: 404 });
     }
 
-    const cache = (caches as any).default
-    const cacheKey = getCacheKey(request)
-    let cachedResponse
+    const cache = (caches as any).default;
+    const cacheKey = getCacheKey(request);
+    let cachedResponse;
 
     if (cacheKey) {
       try {
-        cachedResponse = await cache.match(cacheKey)
+        cachedResponse = await cache.match(cacheKey);
       } catch (err) { }
     }
 
@@ -91,22 +80,22 @@ export default {
         searchParams,
         params: match.params,
         notionToken,
+        notionPages,
         env,
-        notionPages: [] // ✅ 빈 배열 넘겨도 이제 의미 없음
-      })
+      });
 
       if (cacheKey) {
-        ctx.waitUntil(cache.put(cacheKey, res.clone()))
+        ctx.waitUntil(cache.put(cacheKey, res.clone()));
       }
 
-      return res
-    }
+      return res;
+    };
 
     if (cachedResponse) {
-      ctx.waitUntil(getResponseAndCache())
-      return cachedResponse
+      ctx.waitUntil(getResponseAndCache());
+      return cachedResponse;
     }
 
-    return getResponseAndCache()
-  }
-}
+    return getResponseAndCache();
+  },
+};
